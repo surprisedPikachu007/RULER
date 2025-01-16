@@ -68,6 +68,7 @@ parser.add_argument("--num_needle_q", type=int, default=1)
 parser.add_argument("--type_haystack", type=str, default='essay', help='[Options] noise, essay, needle.')
 parser.add_argument("--type_needle_k", type=str, default='words', help='[Options] numbers, words, uuids.')
 parser.add_argument("--type_needle_v", type=str, default='numbers', help='[Options] numbers, words, uuids.')
+parser.add_argument("--model_template_token", type=int, default=0, help='')
 
 args = parser.parse_args()
 random.seed(args.random_seed)
@@ -200,11 +201,13 @@ def generate_input_output(num_haystack):
         context=context,
         query=query,
     )
+    input_text, answer_prefix = input_text.split("<answer_prefix>")[0], input_text.split("<answer_prefix>")[1]
 
-    return input_text, answers
+    return input_text, answer_prefix, answers
 
 
-def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incremental: int = 500):
+def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incremental: int = 500, 
+                     model_template_token: int = 0):
     write_jsons = []
     tokens_to_generate = args.tokens_to_generate
 
@@ -224,11 +227,12 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
 
         
     total_tokens = 0  # Track the total tokens generated for the first example
-    while total_tokens + tokens_to_generate < max_seq_length :  
-        input_text, answer = generate_input_output(num_haystack)
+
+    while total_tokens + tokens_to_generate < max_seq_length - model_template_token :  
+        input_text, answer_prefix, answer = generate_input_output(num_haystack)
         # Calculate the number of tokens in the example
-        total_tokens = len(TOKENIZER.text_to_tokens(input_text + ' '.join(answer)))
-        logger.inf(f'Max length {max_seq_length} | Current length {total_tokens + tokens_to_generate} | Haystack: {num_haystack}')
+        total_tokens = len(TOKENIZER.text_to_tokens(input_text + answer_prefix + ' '.join(answer)))
+        print(f'Max length {max_seq_length} | Current length {total_tokens + tokens_to_generate} | Haystack: {num_haystack}')
         if total_tokens + tokens_to_generate > max_seq_length:
             num_haystack -= incremental
             break
@@ -245,8 +249,8 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
         used_haystack = num_haystack
         while(True):
             try:
-                input_text, answer  = generate_input_output(used_haystack)
-                length = len(TOKENIZER.text_to_tokens(input_text)) + tokens_to_generate
+                input_text, answer_prefix, answer = generate_input_output(used_haystack)
+                length = len(TOKENIZER.text_to_tokens(input_text + answer_prefix )) + tokens_to_generate
                 assert length <= max_seq_length, f"{length} exceeds max_seq_length."
                 break
             except:
@@ -261,6 +265,8 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
             "input": input_text,
             "outputs": answer,
             "length": length,
+            'length_w_model_temp': length + model_template_token, 
+            'answer_prefix': answer_prefix, 
         }
         write_jsons.append(formatted_output)
 
@@ -270,11 +276,11 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
 def main():
     save_file = args.save_dir / f'{args.save_name}' / f'{args.subset}.jsonl'
     save_file.parent.mkdir(parents=True, exist_ok=True)
-
     write_jsons = generate_samples(
         num_samples=args.num_samples, 
         max_seq_length=args.max_seq_length,
-        save_dir=args.save_dir
+        save_dir=args.save_dir,
+        model_template_token=args.model_template_token
     )
 
     write_manifest(save_file, write_jsons)

@@ -46,6 +46,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+from constants import TASKS
 
 parser = argparse.ArgumentParser()
 # Basic Configurations
@@ -68,7 +69,7 @@ parser.add_argument("--num_needle_q", type=int, default=1)
 parser.add_argument("--type_haystack", type=str, default='essay', help='[Options] noise, essay, needle.')
 parser.add_argument("--type_needle_k", type=str, default='words', help='[Options] numbers, words, uuids.')
 parser.add_argument("--type_needle_v", type=str, default='numbers', help='[Options] numbers, words, uuids.')
-parser.add_argument("--model_template_token", type=int, default=0, help='')
+parser.add_argument("--model_template_token", type=int, default=0, help='used for nemo skills, minus num of model template token')
 
 args = parser.parse_args()
 random.seed(args.random_seed)
@@ -201,13 +202,11 @@ def generate_input_output(num_haystack):
         context=context,
         query=query,
     )
-    input_text, answer_prefix = input_text.split("<answer_prefix>")[0], input_text.split("<answer_prefix>")[1]
 
-    return input_text, answer_prefix, answers
+    return input_text, answers
 
 
-def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incremental: int = 500, 
-                     model_template_token: int = 0):
+def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incremental: int = 500):
     write_jsons = []
     tokens_to_generate = args.tokens_to_generate
 
@@ -225,13 +224,13 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
     incremental = max(incremental, num_haystack // 50)
     logger.info(f'initial num haystack: {num_haystack} | incremental: {incremental}')
 
-        
+    max_seq_length -= args.model_template_token
     total_tokens = 0  # Track the total tokens generated for the first example
 
-    while total_tokens + tokens_to_generate < max_seq_length - model_template_token :  
-        input_text, answer_prefix, answer = generate_input_output(num_haystack)
+    while total_tokens + tokens_to_generate < max_seq_length :  
+        input_text, answer = generate_input_output(num_haystack)
         # Calculate the number of tokens in the example
-        total_tokens = len(TOKENIZER.text_to_tokens(input_text + answer_prefix + ' '.join(answer)))
+        total_tokens = len(TOKENIZER.text_to_tokens(input_text + ' '.join(answer)))
         print(f'Max length {max_seq_length} | Current length {total_tokens + tokens_to_generate} | Haystack: {num_haystack}')
         if total_tokens + tokens_to_generate > max_seq_length:
             num_haystack -= incremental
@@ -249,8 +248,8 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
         used_haystack = num_haystack
         while(True):
             try:
-                input_text, answer_prefix, answer = generate_input_output(used_haystack)
-                length = len(TOKENIZER.text_to_tokens(input_text + answer_prefix )) + tokens_to_generate
+                input_text, answer  = generate_input_output(used_haystack)
+                length = len(TOKENIZER.text_to_tokens(input_text)) + tokens_to_generate
                 assert length <= max_seq_length, f"{length} exceeds max_seq_length."
                 break
             except:
@@ -259,13 +258,15 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
         
         if args.remove_newline_tab:
             input_text = ' '.join(input_text.replace('\n', ' ').replace('\t', ' ').strip().split())
-
+        answer_prefix_index = input_text.rfind(TASKS['niah']['answer_prefix'][:10]) # use first 10 char of answer prefix to locate it
+        answer_prefix = input_text[answer_prefix_index:]
+        input_text = input_text[:answer_prefix_index]
         formatted_output = {
             'index': index,
             "input": input_text,
             "outputs": answer,
             "length": length,
-            'length_w_model_temp': length + model_template_token, 
+            'length_w_model_temp': length + args.model_template_token, 
             'answer_prefix': answer_prefix, 
         }
         write_jsons.append(formatted_output)
@@ -279,8 +280,7 @@ def main():
     write_jsons = generate_samples(
         num_samples=args.num_samples, 
         max_seq_length=args.max_seq_length,
-        save_dir=args.save_dir,
-        model_template_token=args.model_template_token
+        save_dir=args.save_dir
     )
 
     write_manifest(save_file, write_jsons)

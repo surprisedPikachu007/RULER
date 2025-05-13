@@ -30,7 +30,6 @@ import re
 import json
 import uuid
 import argparse
-import importlib
 import numpy as np
 from pathlib import Path
 from tqdm import tqdm
@@ -41,6 +40,11 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")) 
 from tokenizer import select_tokenizer
 from nltk.tokenize import sent_tokenize
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 
 parser = argparse.ArgumentParser()
@@ -61,7 +65,7 @@ parser.add_argument("--remove_newline_tab", action='store_true', help='remove `\
 parser.add_argument("--num_needle_k", type=int, default=1)
 parser.add_argument("--num_needle_v", type=int, default=1)
 parser.add_argument("--num_needle_q", type=int, default=1)
-parser.add_argument("--type_haystack", type=str, default='essay', help='[Options] repeat, essay, needle.')
+parser.add_argument("--type_haystack", type=str, default='essay', help='[Options] noise, essay, needle.')
 parser.add_argument("--type_needle_k", type=str, default='words', help='[Options] numbers, words, uuids.')
 parser.add_argument("--type_needle_v", type=str, default='numbers', help='[Options] numbers, words, uuids.')
 
@@ -79,7 +83,7 @@ if args.type_haystack == 'essay':
     essay = os.path.join(os.path.dirname(os.path.abspath(__file__)), "json/PaulGrahamEssays.json")
     essay = json.load(open(essay))['text']
     haystack = re.sub(r'\s+', " ", essay).split(" ")
-elif args.type_haystack == 'repeat':
+elif args.type_haystack == 'noise':
     haystack = "The grass is green. The sky is blue. The sun is yellow. Here we go. There and back again."
 elif args.type_haystack == 'needle':
     haystack = needle
@@ -140,6 +144,12 @@ def generate_input_output(num_haystack):
     # Context
     if args.type_haystack == 'essay':
         text = " ".join(haystack[:num_haystack])
+        if num_haystack <= len(haystack):
+            text = " ".join(haystack[:num_haystack])
+        else:
+            # Repeat haystack as many times as needed and slice to num_haystack
+            repeats = (num_haystack + len(haystack) - 1) // len(haystack)  # Ceiling division
+            text = " ".join((haystack * repeats)[:num_haystack])
         document_sents = sent_tokenize(text.strip())
         insertion_positions = [0] + \
                               sorted([int(len(document_sents) * (depth / 100)) for depth in random.sample(DEPTHS, len(needles))]) + \
@@ -154,7 +164,7 @@ def generate_input_output(num_haystack):
         context = " ".join(document_sents_list)
 
     else:
-        if args.type_haystack == 'repeat':
+        if args.type_haystack == 'noise':
             sentences = [haystack] * num_haystack
         elif args.type_haystack == 'needle':
             sentences = [haystack.format(
@@ -200,7 +210,7 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
 
     if args.type_haystack == 'essay':
         incremental = 500
-    elif args.type_haystack == 'repeat':
+    elif args.type_haystack == 'noise':
         incremental = 25
     elif args.type_haystack == 'needle':
         incremental = 25
@@ -208,25 +218,27 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
     if args.type_haystack != 'essay' and args.max_seq_length < 4096:
         incremental = 5
 
-    num_haystack = incremental
+    num_haystack = max(max_seq_length // 5, incremental)
+    incremental = max(incremental, num_haystack // 50)
+    logger.info(f'initial num haystack: {num_haystack} | incremental: {incremental}')
+
         
     total_tokens = 0  # Track the total tokens generated for the first example
     while total_tokens + tokens_to_generate < max_seq_length :  
         input_text, answer = generate_input_output(num_haystack)
         # Calculate the number of tokens in the example
         total_tokens = len(TOKENIZER.text_to_tokens(input_text + ' '.join(answer)))
-        print(f'Max length {max_seq_length} | Current length {total_tokens + tokens_to_generate} | Haystack: {num_haystack}')
+        logger.inf(f'Max length {max_seq_length} | Current length {total_tokens + tokens_to_generate} | Haystack: {num_haystack}')
         if total_tokens + tokens_to_generate > max_seq_length:
             num_haystack -= incremental
-            break
-    
-        if args.type_haystack == 'essay' and num_haystack > len(haystack):
-            num_haystack = len(haystack)
             break
         
         num_haystack += incremental
 
-    print('Num haystack:', num_haystack)
+    logger.info('Num haystack:', num_haystack)
+    if args.type_haystack == 'essay' and num_haystack > len(haystack):
+        logger.warning(f'Num haystack {num_haystack} exceeds the length of the haystack {len(haystack)}, using repeats... ')
+
     
     # Generate samples
     for index in tqdm(range(num_samples)):

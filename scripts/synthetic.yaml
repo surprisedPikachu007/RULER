@@ -95,6 +95,7 @@ niah_multiquery:
 vt:
   task: variable_tracking
   args:
+    type_haystack: noise
     num_chains: 1
     num_hops: 4
 

@@ -37,6 +37,10 @@ from nemo.collections.asr.parts.utils.manifest_utils import read_manifest, write
 import sys
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")) 
 from tokenizer import select_tokenizer
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 parser = argparse.ArgumentParser()
@@ -131,7 +135,9 @@ def generate_input_output(index, num_docs):
     
         all_docs = [DOCS[idx] for idx in all_docs]
     else:
-        all_docs = DOCS
+        # Repeat DOCS as many times as needed and slice to num_docs
+        repeats = (num_docs + len(DOCS) - 1) // len(DOCS)  # Ceiling division
+        all_docs = (DOCS * repeats)[:num_docs]
         
     random.Random(args.random_seed).shuffle(all_docs)
     
@@ -156,16 +162,15 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
         input_text, answer = generate_input_output(0, num_docs)
         # Calculate the number of tokens in the example
         total_tokens = len(TOKENIZER.text_to_tokens(input_text + f' {answer}'))
-        print(f'Max length {max_seq_length} | Current length {total_tokens + tokens_to_generate} | Docs: {num_docs}')
+        logger.info(f'Max length {max_seq_length} | Current length {total_tokens + tokens_to_generate} | Docs: {num_docs}')
         if total_tokens + tokens_to_generate > max_seq_length:
             num_docs -= incremental
             break
             
         num_docs += incremental
-        if num_docs > len(DOCS):
-            num_docs = len(DOCS)
-            break
-    print('Number of documents:', num_docs)
+    logger.info(f'Number of documents: {num_docs}')
+    if num_docs > len(DOCS):
+        logger.warning(f'num_docs: {num_docs} exceeds numdocs: {len(DOCS)}, using repeats')
     
     # Generate samples
     for index in tqdm(range(num_samples)):

@@ -38,6 +38,11 @@ from nemo.collections.asr.parts.utils.manifest_utils import read_manifest, write
 import sys
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")) 
 from tokenizer import select_tokenizer
+import json
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--save_dir", type=Path, required=True, help='dataset folder to save dataset')
@@ -55,7 +60,7 @@ parser.add_argument("--remove_newline_tab", action='store_true', help='remove `\
 parser.add_argument("--freq_cw", type=int, default=30)
 parser.add_argument("--freq_ucw", type=int, default=3)
 parser.add_argument("--num_cw", type=int, default=10)
-
+parser.add_argument("--num_fewshot", type=int, default=1)
 args = parser.parse_args()
 random.seed(args.random_seed)
 
@@ -68,9 +73,19 @@ verbs = wonderwords.random_word._get_words_from_text_file("verblist.txt")
 words = nouns + adjs + verbs
 words = sorted(list(set(words)))
 random.Random(args.random_seed).shuffle(words)
+logger.info(f'loaded {len(words)} wonderwords')
+
+# Randleword english words
+with open("json/english_words.json", "r") as f:
+    randle_words = list(json.load(f).values())
+    logger.info(f'loaded {len(randle_words)} randle words')
 
 def get_example(num_words, common_repeats=30, uncommon_repeats=3, common_nums=10):
-    word_list_full = random.sample(words, num_words)
+    if num_words <= len(words):
+        word_list_full = random.sample(words, num_words)
+    else:
+        word_list_full = random.sample(randle_words, num_words)
+
     common, uncommon = word_list_full[:common_nums], word_list_full[common_nums:]  
     word_list = common * int(common_repeats) + uncommon * int(uncommon_repeats) 
     random.Random(args.random_seed).shuffle(word_list)
@@ -81,33 +96,44 @@ def get_example(num_words, common_repeats=30, uncommon_repeats=3, common_nums=10
     return context, common
 
 def generate_input_output(num_words):
+    few_shots = []
     if args.max_seq_length < 4096:
-        context_example, answer_example = get_example(20, 3, 1, args.num_cw)
+        for _ in range(args.num_fewshot):
+            context_example, answer_example = get_example(20, 3, 1, args.num_cw)
+            few_shots.append((context_example, answer_example))
         context, answer = get_example(num_words, 6, 1, args.num_cw)
     else:
-        context_example, answer_example = get_example(40, 10, 3, args.num_cw)
+        for _ in range(args.num_fewshot):
+            context_example, answer_example = get_example(40, 10, 3, args.num_cw)
+            few_shots.append((context_example, answer_example))
         context, answer = get_example(num_words, args.freq_cw, args.freq_ucw, args.num_cw)
 
     template = args.template
 
-    input_example = template.format(
-        context=context_example,
-        query='',
-    ) + ' '.join([f"{i + 1}. {word}" for i, word in enumerate(answer_example)])
+    for n in range(len(few_shots)):
+        few_shots[n] = template.format(
+            num_cw=args.num_cw,
+            context=few_shots[n][0],
+            query='',
+        ) + ' ' + ' '.join([f"{i + 1}. {word}" for i, word in enumerate(few_shots[n][1])])
 
+    few_shots = "\n".join(few_shots)
     input_text = template.format(
+        num_cw=args.num_cw,
         context=context,
         query='',
     )
 
-    return input_example + "\n" + input_text, answer
+    return few_shots + "\n" + input_text, answer
 
 def sys_word_pair_random(num_samples: int, max_seq_length: int, save_dir: str, incremental: int = 10):
     write_jsons = []
     tokens_to_generate = args.tokens_to_generate
     
-    # Find the perfect num_words
-    num_words = incremental
+     # Find the perfect num_words using the conservative 40 tokens / word (in reality 20-30) 
+    num_words = max(max_seq_length // 40, incremental)
+    incremental = max(num_words // 100, 10)
+    logger.info(f'max_seq_length: {max_seq_length}, starting num_words: {num_words}, incremental: {incremental}')
     
     total_tokens = 0  
     while total_tokens + tokens_to_generate < max_seq_length:
@@ -115,17 +141,16 @@ def sys_word_pair_random(num_samples: int, max_seq_length: int, save_dir: str, i
         input_text, answer = generate_input_output(num_words)
         # Calculate the number of tokens in the example
         total_tokens = len(TOKENIZER.text_to_tokens(input_text + ' ' + ' '.join([f"{i + 1}. {word}" for i, word in enumerate(answer)])))
-        print(f'Max length {max_seq_length} | Current length {total_tokens + tokens_to_generate} | Words: {num_words}')
+        logger.info(f'Max length {max_seq_length} | Current length {total_tokens + tokens_to_generate} | Words: {num_words}')
         if total_tokens + tokens_to_generate > max_seq_length:
             num_words -= incremental
             break
             
         num_words += incremental
-        if num_words > len(words):
-            num_words = len(words)
-            break
 
-    print('num_words:', num_words)
+    logger.info(f'num_words: {num_words}')
+    if num_words > len(words):
+        logger.info(f'num_words exceeds the number of wonderwords, using randle words')
     
     # Generate samples
     for index in tqdm(range(num_samples)):

@@ -40,6 +40,10 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")) 
 from tokenizer import select_tokenizer
 from scipy.special import zeta 
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--save_dir", type=Path, required=True, help='dataset folder to save dataset')
@@ -113,7 +117,7 @@ def sys_kwext(num_samples: int, max_seq_length: int, incremental: int = 10):
                                                     vocab_size=vocab_size, 
                                                     incremental=input_max_len//32, 
                                                     alpha=args.alpha) 
-    print('num_example_words:', num_example_words)
+    logger.info('num_example_words:', num_example_words)
     # Generate samples
     for index in tqdm(range(num_samples)):
         

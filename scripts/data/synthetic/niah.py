@@ -209,7 +209,7 @@ def generate_input_output(num_haystack):
 def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incremental: int = 500):
     write_jsons = []
     tokens_to_generate = args.tokens_to_generate
-
+    
     if args.type_haystack == 'essay':
         incremental = 500
     elif args.type_haystack == 'noise':
@@ -261,6 +261,9 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
         answer_prefix_index = input_text.rfind(TASKS['niah']['answer_prefix'][:10]) # use first 10 char of answer prefix to locate it
         answer_prefix = input_text[answer_prefix_index:]
         input_text = input_text[:answer_prefix_index]
+        # find answer position in text
+        index = input_text.find(answer[0])
+        token_position_answer = len(TOKENIZER.text_to_tokens(input_text[:index]))
         formatted_output = {
             'index': index,
             "input": input_text,
@@ -268,6 +271,7 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
             "length": length,
             'length_w_model_temp': length + args.model_template_token, 
             'answer_prefix': answer_prefix, 
+            'token_position_answer': token_position_answer,
         }
         write_jsons.append(formatted_output)
 

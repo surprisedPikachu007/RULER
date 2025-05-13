@@ -79,7 +79,9 @@ random.Random(args.random_seed).shuffle(words)
 logger.info(f'loaded {len(words)} wonderwords')
 
 # Randleword english words
-with open("json/english_words.json", "r") as f:
+# find the path of the file
+file_path = os.path.join(os.path.dirname(__file__), "json", "english_words.json")
+with open(file_path, "r") as f:
     randle_words = list(json.load(f).values())
     logger.info(f'loaded {len(randle_words)} randle words')
 

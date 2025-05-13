@@ -44,6 +44,12 @@ from tokenizer import select_tokenizer
 from nltk.tokenize import sent_tokenize
 import numpy as np
 import heapq
+import json
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--save_dir", type=Path, required=True, help='dataset folder to save dataset')
@@ -215,12 +221,12 @@ def sys_vartrack_w_noise_random(num_samples: int, max_seq_length: int, increment
         input_text, answer = generate_input_output(num_noises, num_chains, num_hops, is_icl=add_fewshot & (icl_example is None))
         # Calculate the number of tokens in the example
         total_tokens = len(TOKENIZER.text_to_tokens(input_text + f' {answer}'))
-        print(f'Max length {max_seq_length} | Current length {total_tokens + tokens_to_generate + example_tokens} | Noises: {num_noises}')
+        logger.info(f'Max length {max_seq_length} | Current length {total_tokens + tokens_to_generate + example_tokens} | Noises: {num_noises}')
         if total_tokens + tokens_to_generate + example_tokens > max_seq_length:
             num_noises -= incremental
             break
         num_noises += incremental
-    print('Num noises:', num_noises)
+    logger.info('Num noises:', num_noises)
     
     # Generate samples
     for index in tqdm(range(num_samples)):
@@ -262,7 +268,7 @@ def main():
                                               incremental=5,
                                               num_chains=args.num_chains, 
                                               num_hops=args.num_hops)[0]
-    print(icl_example)
+    logger.info(icl_example)
     write_jsons = sys_vartrack_w_noise_random(num_samples=args.num_samples,
                                               max_seq_length=args.max_seq_length, 
                                               num_chains=args.num_chains,

@@ -228,7 +228,7 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
         input_text, answer = generate_input_output(num_haystack)
         # Calculate the number of tokens in the example
         total_tokens = len(TOKENIZER.text_to_tokens(input_text + ' '.join(answer)))
-        logger.inf(f'Max length {max_seq_length} | Current length {total_tokens + tokens_to_generate} | Haystack: {num_haystack}')
+        logger.info(f'Max length {max_seq_length} | Current length {total_tokens + tokens_to_generate} | Haystack: {num_haystack}')
         if total_tokens + tokens_to_generate > max_seq_length:
             num_haystack -= incremental
             break

@@ -44,6 +44,7 @@ import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+from constants import TASKS
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--save_dir", type=Path, required=True, help='dataset folder to save dataset')
@@ -61,6 +62,7 @@ parser.add_argument("--coded_wordlen", type=int, default=6, help="length of synt
 parser.add_argument("--vocab_size", type=int, default=-1, help='synthetic vocab size to sample from')
 parser.add_argument("--alpha", type=float, default=2.0, help='zeta distribution alpha')
 parser.add_argument("--add_fewshot", action="store_true", default=False)
+parser.add_argument("--model_template_token", type=int, default=0, help='used for nemo skills, minus num of model template token')
 
 args = parser.parse_args()
 random.seed(args.random_seed)
@@ -108,6 +110,7 @@ def sys_kwext(num_samples: int, max_seq_length: int, incremental: int = 10):
     write_jsons = []
     tokens_to_generate = args.tokens_to_generate
 
+    max_seq_length -= args.model_template_token
     vocab_size = max_seq_length // 50 if args.vocab_size == -1 else args.vocab_size
 
     # get number of words
@@ -136,11 +139,16 @@ def sys_kwext(num_samples: int, max_seq_length: int, incremental: int = 10):
         if args.remove_newline_tab:
             input_text = ' '.join(input_text.replace('\n', ' ').replace('\t', ' ').strip().split())
         
+        answer_prefix_index = input_text.rfind(TASKS['freq_words_extraction']['answer_prefix'][:10]) # use first 10 char of answer prefix to locate it
+        answer_prefix = input_text[answer_prefix_index:]
+        input_text = input_text[:answer_prefix_index]
         formatted_output = {
             'index': index,
             "input": input_text,
             "outputs": answer,
             "length": length,
+            'length_w_model_temp': length + args.model_template_token,
+            'answer_prefix': answer_prefix,
         }
         write_jsons.append(formatted_output)
 

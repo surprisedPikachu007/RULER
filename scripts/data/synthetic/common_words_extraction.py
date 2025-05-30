@@ -40,9 +40,10 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from tokenizer import select_tokenizer
 import json
 import logging
-
+from constants import TASKS
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--save_dir", type=Path, required=True, help='dataset folder to save dataset')
@@ -61,6 +62,7 @@ parser.add_argument("--freq_cw", type=int, default=30)
 parser.add_argument("--freq_ucw", type=int, default=3)
 parser.add_argument("--num_cw", type=int, default=10)
 parser.add_argument("--num_fewshot", type=int, default=1)
+parser.add_argument("--model_template_token", type=int, default=0, help='used for nemo skills, minus num of model template token')
 args = parser.parse_args()
 random.seed(args.random_seed)
 
@@ -136,6 +138,7 @@ def sys_word_pair_random(num_samples: int, max_seq_length: int, save_dir: str, i
     logger.info(f'max_seq_length: {max_seq_length}, starting num_words: {num_words}, incremental: {incremental}')
     
     total_tokens = 0  
+    max_seq_length -= args.model_template_token
     while total_tokens + tokens_to_generate < max_seq_length:
         
         input_text, answer = generate_input_output(num_words)
@@ -168,11 +171,17 @@ def sys_word_pair_random(num_samples: int, max_seq_length: int, save_dir: str, i
         if args.remove_newline_tab:
             input_text = ' '.join(input_text.replace('\n', ' ').replace('\t', ' ').strip().split())
         
+        answer_prefix_index = input_text.rfind(TASKS['common_words_extraction']['answer_prefix'][:10]) # use first 10 char of answer prefix to locate it
+        answer_prefix = input_text[answer_prefix_index:]
+        input_text = input_text[:answer_prefix_index]
+
         formatted_output = {
             'index': index,
             "input": input_text,
             "outputs": answer,
             "length": length,
+            'length_w_model_temp': length + args.model_template_token, 
+            'answer_prefix': answer_prefix, 
         }
         write_jsons.append(formatted_output)
 

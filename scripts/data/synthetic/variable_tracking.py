@@ -67,6 +67,8 @@ parser.add_argument("--remove_newline_tab", action='store_true', help='remove `\
 parser.add_argument("--type_haystack", type=str, default='noise', help='[Options] noise or essay.')
 parser.add_argument("--num_chains", type=int, default=1, help='number of inserted variable chains')
 parser.add_argument("--num_hops", type=int, default=4, help='number of hops in each chain')
+parser.add_argument("--add_fewshot", action="store_true", default=False)
+parser.add_argument("--model_template_token", type=int, default=0, help='used for nemo skills, minus num of model template token')
 
 args = parser.parse_args()
 random.seed(args.random_seed)
@@ -189,10 +191,11 @@ def randomize_icl(icl_example):
 def sys_vartrack_w_noise_random(num_samples: int, max_seq_length: int, incremental: int = 10, 
                                 num_chains: int = 1, num_hops: int = 4,
                                 add_fewshot: bool = True,
-                                icl_example: str = None):
+                                icl_example: str = None,
+                                final_output: bool = False):
     write_jsons = []
     tokens_to_generate = args.tokens_to_generate if icl_example is not None else 0
-    
+    max_seq_length -= args.model_template_token
     # Find the perfect num_noises
     if icl_example:
         if args.type_haystack == 'essay':
@@ -248,12 +251,25 @@ def sys_vartrack_w_noise_random(num_samples: int, max_seq_length: int, increment
         if args.remove_newline_tab:
             input_text = ' '.join(input_text.replace('\n', ' ').replace('\t', ' ').strip().split())
         
-        formatted_output = {
-            'index': index,
-            "input": input_text,
-            "outputs": answer,
-            "length": length,
-        }
+        if final_output:
+            answer_prefix_index = input_text.rfind(TASKS['variable_tracking']['answer_prefix'][:10]) # use first 10 char of answer prefix to locate it
+            answer_prefix = input_text[answer_prefix_index:]
+            input_text = input_text[:answer_prefix_index]
+            formatted_output = {
+                'index': index,
+                "input": input_text,
+                "outputs": answer,
+                "length": length,
+                'length_w_model_temp': length + args.model_template_token,
+                'answer_prefix': answer_prefix,
+            }
+        else:
+            formatted_output = {
+                'index': index,
+                "input": input_text,
+                "outputs": answer,
+                "length": length,
+            }
         write_jsons.append(formatted_output)
 
     return write_jsons
@@ -273,7 +289,8 @@ def main():
                                               max_seq_length=args.max_seq_length, 
                                               num_chains=args.num_chains,
                                               num_hops=args.num_hops,
-                                              icl_example=icl_example)
+                                              icl_example=icl_example,
+                                              final_output=True)
     
     write_manifest(save_file, write_jsons)
 

@@ -46,6 +46,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+from constants import TASKS
 
 parser = argparse.ArgumentParser()
 # Basic Configurations
@@ -68,6 +69,7 @@ parser.add_argument("--num_needle_q", type=int, default=1)
 parser.add_argument("--type_haystack", type=str, default='essay', help='[Options] noise, essay, needle.')
 parser.add_argument("--type_needle_k", type=str, default='words', help='[Options] numbers, words, uuids.')
 parser.add_argument("--type_needle_v", type=str, default='numbers', help='[Options] numbers, words, uuids.')
+parser.add_argument("--model_template_token", type=int, default=0, help='used for nemo skills, minus num of model template token')
 
 args = parser.parse_args()
 random.seed(args.random_seed)
@@ -207,7 +209,7 @@ def generate_input_output(num_haystack):
 def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incremental: int = 500):
     write_jsons = []
     tokens_to_generate = args.tokens_to_generate
-
+    
     if args.type_haystack == 'essay':
         incremental = 500
     elif args.type_haystack == 'noise':
@@ -222,8 +224,9 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
     incremental = max(incremental, num_haystack // 50)
     logger.info(f'initial num haystack: {num_haystack} | incremental: {incremental}')
 
-        
+    max_seq_length -= args.model_template_token
     total_tokens = 0  # Track the total tokens generated for the first example
+
     while total_tokens + tokens_to_generate < max_seq_length :  
         input_text, answer = generate_input_output(num_haystack)
         # Calculate the number of tokens in the example
@@ -255,12 +258,20 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
         
         if args.remove_newline_tab:
             input_text = ' '.join(input_text.replace('\n', ' ').replace('\t', ' ').strip().split())
-
+        answer_prefix_index = input_text.rfind(TASKS['niah']['answer_prefix'][:10]) # use first 10 char of answer prefix to locate it
+        answer_prefix = input_text[answer_prefix_index:]
+        input_text = input_text[:answer_prefix_index]
+        # find answer position in text
+        index = input_text.find(answer[0])
+        token_position_answer = len(TOKENIZER.text_to_tokens(input_text[:index]))
         formatted_output = {
             'index': index,
             "input": input_text,
             "outputs": answer,
             "length": length,
+            'length_w_model_temp': length + args.model_template_token, 
+            'answer_prefix': answer_prefix, 
+            'token_position_answer': token_position_answer,
         }
         write_jsons.append(formatted_output)
 
@@ -270,7 +281,6 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
 def main():
     save_file = args.save_dir / f'{args.save_name}' / f'{args.subset}.jsonl'
     save_file.parent.mkdir(parents=True, exist_ok=True)
-
     write_jsons = generate_samples(
         num_samples=args.num_samples, 
         max_seq_length=args.max_seq_length,

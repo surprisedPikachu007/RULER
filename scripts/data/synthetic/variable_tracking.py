@@ -47,7 +47,7 @@ import heapq
 import json
 import logging
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, force=True)
 logger = logging.getLogger(__name__)
 
 
@@ -127,13 +127,13 @@ def shuffle_sublists_heap(lst):
             heapq.heappush(heap, (random.random(), list_idx, elem_idx + 1))
     return shuffled_result
 
-def generate_input_output(num_haystack, num_chains, num_hops, is_icl=False):
+def generate_input_output(num_noises, num_chains, num_hops, is_icl=False):
 
     vars, chains = generate_chains(num_chains, num_hops, is_icl=is_icl)
     value = chains[0][0].split("=")[-1].strip()
     
     if args.type_haystack == 'essay':
-        text = " ".join(haystack[:num_haystack])
+        text = " ".join(haystack[:num_noises])
         document_sents = sent_tokenize(text.strip())
         chains_flat = shuffle_sublists_heap(chains)
         insertion_positions = [0] + \
@@ -149,7 +149,7 @@ def generate_input_output(num_haystack, num_chains, num_hops, is_icl=False):
         context = " ".join(document_sents_list)
 
     elif args.type_haystack == 'noise':
-        sentences = [haystack] * num_haystack
+        sentences = [haystack] * num_noises
         for chain in chains:
             positions = list(sorted(random.sample(range(len(sentences)), len(chain))))
             for insert_pi, j in zip(positions, range(len(chain))):
@@ -196,6 +196,7 @@ def sys_vartrack_w_noise_random(num_samples: int, max_seq_length: int, increment
     write_jsons = []
     tokens_to_generate = args.tokens_to_generate if icl_example is not None else 0
     max_seq_length -= args.model_template_token
+
     # Find the perfect num_noises
     if icl_example:
         if args.type_haystack == 'essay':
@@ -210,26 +211,47 @@ def sys_vartrack_w_noise_random(num_samples: int, max_seq_length: int, increment
             incremental = 50
         elif args.type_haystack == 'noise':
             incremental = 5
-    
-    num_noises = incremental
-        
-    total_tokens = 0  # Track the total tokens generated for this example
+
     example_tokens = 0
     if add_fewshot and (icl_example is not None):
         icl_example_out = ' '.join(icl_example['outputs'])
         icl_example = icl_example['input'] + " " + icl_example_out + '\n'
         example_tokens = len(TOKENIZER.text_to_tokens(icl_example)) 
-        
-    while total_tokens + tokens_to_generate + example_tokens < max_seq_length :
-        input_text, answer = generate_input_output(num_noises, num_chains, num_hops, is_icl=add_fewshot & (icl_example is None))
-        # Calculate the number of tokens in the example
-        total_tokens = len(TOKENIZER.text_to_tokens(input_text + f' {answer}'))
-        logger.info(f'Max length {max_seq_length} | Current length {total_tokens + tokens_to_generate + example_tokens} | Noises: {num_noises}')
-        if total_tokens + tokens_to_generate + example_tokens > max_seq_length:
-            num_noises -= incremental
-            break
-        num_noises += incremental
-    logger.info('Num noises:', num_noises)
+
+    # Estimate tokens per question to determine reasonable upper bound
+    sample_input_text, _ = generate_input_output(incremental, num_chains, num_hops, is_icl=add_fewshot & (icl_example is None))
+    sample_tokens = len(TOKENIZER.text_to_tokens(sample_input_text))
+    tokens_per_haystack = sample_tokens / incremental
+
+    # Let's do 3x to allow for some slack since we can get unlucky due to sampling.
+    # NOTE: We should test this for really large sequence lengths to make sure it's reasonable.
+    estimated_max_noises = int((max_seq_length / tokens_per_haystack) * 3)
+
+    # Binary search for optimal haystack size
+    lower_bound = incremental
+    upper_bound = max(estimated_max_noises, incremental * 2)  # Ensure upper_bound is reasonable
+
+    optimal_num_noises = None
+
+    logger.info(f"Estimated {tokens_per_haystack:.1f} tokens per haystack")
+    logger.info(f"Starting binary search with bounds: {lower_bound} to {upper_bound}")
+    while lower_bound <= upper_bound:
+        mid = (lower_bound + upper_bound) // 2
+        input_text, answer = generate_input_output(mid, num_chains, num_hops, is_icl=add_fewshot & (icl_example is None))
+        total_tokens = len(TOKENIZER.text_to_tokens(input_text)) + example_tokens + tokens_to_generate
+
+        logger.info(f"Testing haystack size: {mid}, resulting tokens: {total_tokens}/{max_seq_length}")
+
+        if total_tokens <= max_seq_length:
+            # This size works, can we go larger?
+            optimal_num_noises = mid
+            lower_bound = mid + 1
+        else:
+            # Too large, need to go smaller
+            upper_bound = mid - 1
+
+    num_noises = optimal_num_noises if optimal_num_noises is not None else incremental
+    logger.info(f'Final optimal haystack size (number of haystack): {num_noises}')
     
     # Generate samples
     for index in tqdm(range(num_samples)):

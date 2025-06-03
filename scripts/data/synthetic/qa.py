@@ -39,7 +39,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from tokenizer import select_tokenizer
 import logging
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, force=True)
 logger = logging.getLogger(__name__)
 
 from constants import TASKS
@@ -154,24 +154,43 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
     
     write_jsons = []
     tokens_to_generate = args.tokens_to_generate
-    
-    # Find the perfect num_docs
-    num_docs = incremental
     max_seq_length -= args.model_template_token
-    total_tokens = 0  # Track the total tokens generated for this example
-    while total_tokens + tokens_to_generate < max_seq_length :  
-        input_text, answer = generate_input_output(0, num_docs)
-        # Calculate the number of tokens in the example
-        total_tokens = len(TOKENIZER.text_to_tokens(input_text + f' {answer}'))
-        logger.info(f'Max length {max_seq_length} | Current length {total_tokens + tokens_to_generate} | Docs: {num_docs}')
-        if total_tokens + tokens_to_generate > max_seq_length:
-            num_docs -= incremental
-            break
-            
-        num_docs += incremental
-    logger.info(f'Number of documents: {num_docs}')
-    if num_docs > len(DOCS):
-        logger.warning(f'num_docs: {num_docs} exceeds numdocs: {len(DOCS)}, using repeats')
+
+    # Estimate tokens per question to determine reasonable upper bound
+    sample_input_text, _ = generate_input_output(0, incremental)
+    sample_tokens = len(TOKENIZER.text_to_tokens(sample_input_text))
+    tokens_per_doc = sample_tokens / incremental
+
+    # Let's do 3x to allow for some slack since we can get unlucky due to sampling.
+    # NOTE: We should test this for really large sequence lengths to make sure it's reasonable.
+    estimated_max_docs = int((max_seq_length / tokens_per_doc) * 3)
+
+    # Binary search for optimal haystack size
+    lower_bound = incremental
+    upper_bound = max(estimated_max_docs, incremental * 2)  # Ensure upper_bound is reasonable
+
+    optimal_num_docs = None
+
+    logger.info(f"Estimated {tokens_per_doc:.1f} tokens per doc")
+    logger.info(f"Starting binary search with bounds: {lower_bound} to {upper_bound}")
+
+    while lower_bound <= upper_bound:
+        mid = (lower_bound + upper_bound) // 2
+        input_text, answer = generate_input_output(0, mid)
+        total_tokens = len(TOKENIZER.text_to_tokens(input_text)) + tokens_to_generate
+
+        logger.info(f"Testing haystack size: {mid}, resulting tokens: {total_tokens}/{max_seq_length}")
+
+        if total_tokens <= max_seq_length:
+            # This size works, can we go larger?
+            optimal_num_docs = mid
+            lower_bound = mid + 1
+        else:
+            # Too large, need to go smaller
+            upper_bound = mid - 1
+
+    num_docs = optimal_num_docs if optimal_num_docs is not None else incremental
+    logger.info(f'Final optimal haystack size (number of docs): {num_docs}')
     
     # Generate samples
     for index in tqdm(range(num_samples)):

@@ -42,7 +42,7 @@ from tokenizer import select_tokenizer
 from nltk.tokenize import sent_tokenize
 import logging
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, force=True)
 logger = logging.getLogger(__name__)
 
 
@@ -209,6 +209,7 @@ def generate_input_output(num_haystack):
 def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incremental: int = 500):
     write_jsons = []
     tokens_to_generate = args.tokens_to_generate
+    max_seq_length -= args.model_template_token
     
     if args.type_haystack == 'essay':
         incremental = 500
@@ -220,27 +221,42 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
     if args.type_haystack != 'essay' and args.max_seq_length < 4096:
         incremental = 5
 
-    num_haystack = max(max_seq_length // 5, incremental)
-    incremental = max(incremental, num_haystack // 50)
-    logger.info(f'initial num haystack: {num_haystack} | incremental: {incremental}')
+    # Estimate tokens per question to determine reasonable upper bound
+    sample_input_text, _ = generate_input_output(incremental)
+    sample_tokens = len(TOKENIZER.text_to_tokens(sample_input_text))
+    tokens_per_haystack = sample_tokens / incremental
 
-    max_seq_length -= args.model_template_token
-    total_tokens = 0  # Track the total tokens generated for the first example
+    # Let's do 3x to allow for some slack since we can get unlucky due to sampling.
+    # NOTE: We should test this for really large sequence lengths to make sure it's reasonable.
+    estimated_max_questions = int((max_seq_length / tokens_per_haystack) * 3)
 
-    while total_tokens + tokens_to_generate < max_seq_length :  
-        input_text, answer = generate_input_output(num_haystack)
-        # Calculate the number of tokens in the example
-        total_tokens = len(TOKENIZER.text_to_tokens(input_text + ' '.join(answer)))
-        logger.info(f'Max length {max_seq_length} | Current length {total_tokens + tokens_to_generate} | Haystack: {num_haystack}')
-        if total_tokens + tokens_to_generate > max_seq_length:
-            num_haystack -= incremental
-            break
-        
-        num_haystack += incremental
+    # Binary search for optimal haystack size
+    lower_bound = incremental
+    upper_bound = max(estimated_max_questions, incremental * 2)  # Ensure upper_bound is reasonable
 
-    logger.info('Num haystack:', num_haystack)
-    if args.type_haystack == 'essay' and num_haystack > len(haystack):
-        logger.warning(f'Num haystack {num_haystack} exceeds the length of the haystack {len(haystack)}, using repeats... ')
+    optimal_num_haystack = None
+
+    logger.info(f"Estimated {tokens_per_haystack:.1f} tokens per haystack")
+    logger.info(f"Starting binary search with bounds: {lower_bound} to {upper_bound}")
+
+    while lower_bound <= upper_bound:
+        mid = (lower_bound + upper_bound) // 2
+        input_text, answer = generate_input_output(mid)
+        total_tokens = len(TOKENIZER.text_to_tokens(input_text)) + tokens_to_generate
+
+        logger.info(f"Testing haystack size: {mid}, resulting tokens: {total_tokens}/{max_seq_length}")
+
+        if total_tokens <= max_seq_length:
+            # This size works, can we go larger?
+            optimal_num_haystack = mid
+            lower_bound = mid + 1
+        else:
+            # Too large, need to go smaller
+            upper_bound = mid - 1
+
+    num_haystack = optimal_num_haystack if optimal_num_haystack is not None else incremental
+    logger.info(f'Final optimal haystack size (number of haystack): {num_haystack}')
+
 
     
     # Generate samples

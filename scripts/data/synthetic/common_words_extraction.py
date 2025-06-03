@@ -41,7 +41,7 @@ from tokenizer import select_tokenizer
 import json
 import logging
 from constants import TASKS
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, force=True)
 logger = logging.getLogger(__name__)
 
 
@@ -131,30 +131,45 @@ def generate_input_output(num_words):
 def sys_word_pair_random(num_samples: int, max_seq_length: int, save_dir: str, incremental: int = 10):
     write_jsons = []
     tokens_to_generate = args.tokens_to_generate
-    
-     # Find the perfect num_words using the conservative 40 tokens / word (in reality 20-30) 
-    num_words = max(max_seq_length // 40, incremental)
-    incremental = max(num_words // 100, 10)
-    logger.info(f'max_seq_length: {max_seq_length}, starting num_words: {num_words}, incremental: {incremental}')
-    
-    total_tokens = 0  
     max_seq_length -= args.model_template_token
-    while total_tokens + tokens_to_generate < max_seq_length:
-        
-        input_text, answer = generate_input_output(num_words)
-        # Calculate the number of tokens in the example
-        total_tokens = len(TOKENIZER.text_to_tokens(input_text + ' ' + ' '.join([f"{i + 1}. {word}" for i, word in enumerate(answer)])))
-        logger.info(f'Max length {max_seq_length} | Current length {total_tokens + tokens_to_generate} | Words: {num_words}')
-        if total_tokens + tokens_to_generate > max_seq_length:
-            num_words -= incremental
-            break
-            
-        num_words += incremental
-
-    logger.info(f'num_words: {num_words}')
-    if num_words > len(words):
-        logger.info(f'num_words exceeds the number of wonderwords, using randle words')
     
+
+    # Estimate tokens per question to determine reasonable upper bound
+    sample_input_text, _ = generate_input_output(incremental)
+    sample_tokens = len(TOKENIZER.text_to_tokens(sample_input_text))
+    tokens_per_words = sample_tokens / incremental
+
+    # Let's do 3x to allow for some slack since we can get unlucky due to sampling.
+    # NOTE: We should test this for really large sequence lengths to make sure it's reasonable.
+    estimated_max_words = int((max_seq_length / tokens_per_words) * 3)
+
+    # Binary search for optimal haystack size
+    lower_bound = incremental
+    upper_bound = max(estimated_max_words, incremental * 2)  # Ensure upper_bound is reasonable
+
+    optimal_num_words = None
+
+    logger.info(f"Estimated {tokens_per_words:.1f} tokens per haystack")
+    logger.info(f"Starting binary search with bounds: {lower_bound} to {upper_bound}")
+    while lower_bound <= upper_bound:
+        mid = (lower_bound + upper_bound) // 2
+        input_text, answer = generate_input_output(mid)
+        total_tokens = len(TOKENIZER.text_to_tokens(input_text)) + tokens_to_generate
+
+        logger.info(f"Testing haystack size: {mid}, resulting tokens: {total_tokens}/{max_seq_length}")
+
+        if total_tokens <= max_seq_length:
+            # This size works, can we go larger?
+            optimal_num_words = mid
+            lower_bound = mid + 1
+        else:
+            # Too large, need to go smaller
+            upper_bound = mid - 1
+
+    num_words = optimal_num_words if optimal_num_words is not None else incremental
+    logger.info(f'Final optimal haystack size (number of haystack): {num_words}')
+
+
     # Generate samples
     for index in tqdm(range(num_samples)):
         used_words = num_words

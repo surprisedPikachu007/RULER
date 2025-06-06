@@ -34,10 +34,10 @@ from pathlib import Path
 from tqdm import tqdm
 import random
 import wonderwords
-from nemo.collections.asr.parts.utils.manifest_utils import read_manifest, write_manifest
 import sys
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")) 
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from tokenizer import select_tokenizer
+from manifest_utils import write_manifest
 import json
 import logging
 from constants import TASKS
@@ -88,8 +88,8 @@ def get_example(num_words, common_repeats=30, uncommon_repeats=3, common_nums=10
     else:
         word_list_full = random.sample(randle_words, num_words)
 
-    common, uncommon = word_list_full[:common_nums], word_list_full[common_nums:]  
-    word_list = common * int(common_repeats) + uncommon * int(uncommon_repeats) 
+    common, uncommon = word_list_full[:common_nums], word_list_full[common_nums:]
+    word_list = common * int(common_repeats) + uncommon * int(uncommon_repeats)
     random.Random(args.random_seed).shuffle(word_list)
 
     # Formatting the word list as "1. word1 2. word2 3. word3 ..."
@@ -132,7 +132,7 @@ def sys_word_pair_random(num_samples: int, max_seq_length: int, save_dir: str, i
     write_jsons = []
     tokens_to_generate = args.tokens_to_generate
     max_seq_length -= args.model_template_token
-    
+
 
     # Estimate tokens per question to determine reasonable upper bound
     sample_input_text, _ = generate_input_output(incremental)
@@ -185,7 +185,7 @@ def sys_word_pair_random(num_samples: int, max_seq_length: int, save_dir: str, i
 
         if args.remove_newline_tab:
             input_text = ' '.join(input_text.replace('\n', ' ').replace('\t', ' ').strip().split())
-        
+
         answer_prefix_index = input_text.rfind(TASKS['common_words_extraction']['answer_prefix'][:10]) # use first 10 char of answer prefix to locate it
         answer_prefix = input_text[answer_prefix_index:]
         input_text = input_text[:answer_prefix_index]
@@ -195,8 +195,8 @@ def sys_word_pair_random(num_samples: int, max_seq_length: int, save_dir: str, i
             "input": input_text,
             "outputs": answer,
             "length": length,
-            'length_w_model_temp': length + args.model_template_token, 
-            'answer_prefix': answer_prefix, 
+            'length_w_model_temp': length + args.model_template_token,
+            'answer_prefix': answer_prefix,
         }
         write_jsons.append(formatted_output)
 

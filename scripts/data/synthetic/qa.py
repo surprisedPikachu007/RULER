@@ -33,10 +33,10 @@ from pathlib import Path
 from tqdm import tqdm
 import random
 import numpy as np
-from nemo.collections.asr.parts.utils.manifest_utils import read_manifest, write_manifest
 import sys
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")) 
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from tokenizer import select_tokenizer
+from manifest_utils import write_manifest
 import logging
 
 logging.basicConfig(level=logging.INFO, force=True)
@@ -73,7 +73,7 @@ TOKENIZER = select_tokenizer(args.tokenizer_type, args.tokenizer_path)
 def read_squad(file):
     with open(file) as f:
         data = json.load(f)
-        
+
     total_docs = [p['context'] for d in data['data'] for p in d['paragraphs']]
     total_docs = sorted(list(set(total_docs)))
     total_docs_dict = {c: idx for idx, c in enumerate(total_docs)}
@@ -90,7 +90,7 @@ def read_squad(file):
                         'context': [total_docs_dict[p['context']]],
                         'more_context': [idx for idx in more_docs if idx != total_docs_dict[p['context']]]
                     })
-                        
+
     return total_qas, total_docs
 
 # Read Hotpot QA dataset
@@ -101,7 +101,7 @@ def read_hotpotqa(file):
     total_docs = [f"{t}\n{''.join(p)}" for d in data for t, p in d['context']]
     total_docs = sorted(list(set(total_docs)))
     total_docs_dict = {c: idx for idx, c in enumerate(total_docs)}
-    
+
     total_qas = []
     for d in data:
         total_qas.append({
@@ -109,7 +109,7 @@ def read_hotpotqa(file):
             'outputs': [d['answer']],
             'context': [total_docs_dict[f"{t}\n{''.join(p)}"] for t, p in d['context']],
         })
-        
+
     return total_qas, total_docs
 
 
@@ -133,25 +133,25 @@ def generate_input_output(index, num_docs):
             all_docs = curr_docs + curr_more + random.sample(addition_docs, max(0, num_docs - len(curr_docs) - len(curr_more)))
         else:
             all_docs = curr_docs + random.sample(curr_more, num_docs - len(curr_docs))
-    
+
         all_docs = [DOCS[idx] for idx in all_docs]
     else:
         # Repeat DOCS as many times as needed and slice to num_docs
         repeats = (num_docs + len(DOCS) - 1) // len(DOCS)  # Ceiling division
         all_docs = (DOCS * repeats)[:num_docs]
-        
+
     random.Random(args.random_seed).shuffle(all_docs)
-    
+
     context = '\n\n'.join([DOCUMENT_PROMPT.format(i=i+1, document=d) for i, d in enumerate(all_docs)])
     input_text = args.template.format(
-        context=context, 
+        context=context,
         query=curr_q
     )
     return input_text, curr_a
 
 
-def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incremental: int = 10): 
-    
+def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incremental: int = 10):
+
     write_jsons = []
     tokens_to_generate = args.tokens_to_generate
     max_seq_length -= args.model_template_token
@@ -191,7 +191,7 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
 
     num_docs = optimal_num_docs if optimal_num_docs is not None else incremental
     logger.info(f'Final optimal haystack size (number of docs): {num_docs}')
-    
+
     # Generate samples
     for index in tqdm(range(num_samples)):
         used_docs = num_docs
@@ -204,7 +204,7 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
             except:
                 if used_docs > incremental:
                     used_docs -= incremental
-        
+
         if args.remove_newline_tab:
             input_text = ' '.join(input_text.replace('\n', ' ').replace('\t', ' ').strip().split())
         answer_prefix_index = input_text.rfind(TASKS['qa']['answer_prefix'][:10]) # use first 10 char of answer prefix to locate it
@@ -228,11 +228,11 @@ def main():
     save_file.parent.mkdir(parents=True, exist_ok=True)
 
     write_jsons = generate_samples(
-        num_samples=args.num_samples, 
-        max_seq_length=args.max_seq_length, 
+        num_samples=args.num_samples,
+        max_seq_length=args.max_seq_length,
         save_dir=args.save_dir
     )
-    
+
     write_manifest(save_file, write_jsons)
 
 if __name__=="__main__":

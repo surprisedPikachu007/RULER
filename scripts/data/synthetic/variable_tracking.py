@@ -36,11 +36,11 @@ from tqdm import tqdm
 import random
 import string
 from constants import TASKS
-from nemo.collections.asr.parts.utils.manifest_utils import read_manifest, write_manifest
 import sys
 import pdb
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")) 
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from tokenizer import select_tokenizer
+from manifest_utils import write_manifest
 from nltk.tokenize import sent_tokenize
 import numpy as np
 import heapq
@@ -77,7 +77,7 @@ np.random.seed(args.random_seed)
 # Load Tokenizer
 TOKENIZER = select_tokenizer(args.tokenizer_type, args.tokenizer_path)
 
-# Define Needle/Haystack Format 
+# Define Needle/Haystack Format
 if args.type_haystack == 'essay':
     essay = os.path.join(os.path.dirname(os.path.abspath(__file__)), "json/PaulGrahamEssays.json")
     essay = json.load(open(essay))['text']
@@ -91,7 +91,7 @@ else:
 DEPTHS = list(np.round(np.linspace(0, 100, num=40, endpoint=True)).astype(int))
 
 def generate_chains(num_chains, num_hops, is_icl=False):
-    
+
     vars_all = []
     k = 5 if not is_icl else 3
     num_hops = num_hops if not is_icl else min(10, num_hops)
@@ -121,7 +121,7 @@ def shuffle_sublists_heap(lst):
     while heap:
         _, list_idx, elem_idx = heapq.heappop(heap)  # Get the lowest random priority element
         shuffled_result.append(lst[list_idx][elem_idx])
-        
+
         # If there are more elements in the same sublist, add the next one
         if elem_idx + 1 < len(lst[list_idx]):
             heapq.heappush(heap, (random.random(), list_idx, elem_idx + 1))
@@ -131,7 +131,7 @@ def generate_input_output(num_noises, num_chains, num_hops, is_icl=False):
 
     vars, chains = generate_chains(num_chains, num_hops, is_icl=is_icl)
     value = chains[0][0].split("=")[-1].strip()
-    
+
     if args.type_haystack == 'essay':
         text = " ".join(haystack[:num_noises])
         document_sents = sent_tokenize(text.strip())
@@ -185,10 +185,10 @@ def randomize_icl(icl_example):
     old_value = "12345"
     new_value = str(np.random.randint(10000, 99999))
     icl_example = icl_example.replace(old_value, new_value)
-    
+
     return icl_example
 
-def sys_vartrack_w_noise_random(num_samples: int, max_seq_length: int, incremental: int = 10, 
+def sys_vartrack_w_noise_random(num_samples: int, max_seq_length: int, incremental: int = 10,
                                 num_chains: int = 1, num_hops: int = 4,
                                 add_fewshot: bool = True,
                                 icl_example: str = None,
@@ -203,7 +203,7 @@ def sys_vartrack_w_noise_random(num_samples: int, max_seq_length: int, increment
             incremental = 500
         elif args.type_haystack == 'noise':
             incremental = 10
-            
+
         if args.type_haystack != 'essay' and args.max_seq_length < 4096:
             incremental = 5
     else:
@@ -216,7 +216,7 @@ def sys_vartrack_w_noise_random(num_samples: int, max_seq_length: int, increment
     if add_fewshot and (icl_example is not None):
         icl_example_out = ' '.join(icl_example['outputs'])
         icl_example = icl_example['input'] + " " + icl_example_out + '\n'
-        example_tokens = len(TOKENIZER.text_to_tokens(icl_example)) 
+        example_tokens = len(TOKENIZER.text_to_tokens(icl_example))
 
     # Estimate tokens per question to determine reasonable upper bound
     sample_input_text, _ = generate_input_output(incremental, num_chains, num_hops, is_icl=add_fewshot & (icl_example is None))
@@ -252,7 +252,7 @@ def sys_vartrack_w_noise_random(num_samples: int, max_seq_length: int, increment
 
     num_noises = optimal_num_noises if optimal_num_noises is not None else incremental
     logger.info(f'Final optimal haystack size (number of haystack): {num_noises}')
-    
+
     # Generate samples
     for index in tqdm(range(num_samples)):
         used_noises = num_noises
@@ -272,7 +272,7 @@ def sys_vartrack_w_noise_random(num_samples: int, max_seq_length: int, increment
             input_text = input_text[:cutoff] + randomize_icl(icl_example) + '\n' + input_text[cutoff:]
         if args.remove_newline_tab:
             input_text = ' '.join(input_text.replace('\n', ' ').replace('\t', ' ').strip().split())
-        
+
         if final_output:
             answer_prefix_index = input_text.rfind(TASKS['variable_tracking']['answer_prefix'][:10]) # use first 10 char of answer prefix to locate it
             answer_prefix = input_text[answer_prefix_index:]
@@ -297,23 +297,23 @@ def sys_vartrack_w_noise_random(num_samples: int, max_seq_length: int, increment
     return write_jsons
 
 
-def main():   
+def main():
     save_file = args.save_dir / f'{args.save_name}' / f'{args.subset}.jsonl'
     save_file.parent.mkdir(parents=True, exist_ok=True)
 
-    icl_example = sys_vartrack_w_noise_random(num_samples=1, 
-                                              max_seq_length=500, 
+    icl_example = sys_vartrack_w_noise_random(num_samples=1,
+                                              max_seq_length=500,
                                               incremental=5,
-                                              num_chains=args.num_chains, 
+                                              num_chains=args.num_chains,
                                               num_hops=args.num_hops)[0]
     logger.info(icl_example)
     write_jsons = sys_vartrack_w_noise_random(num_samples=args.num_samples,
-                                              max_seq_length=args.max_seq_length, 
+                                              max_seq_length=args.max_seq_length,
                                               num_chains=args.num_chains,
                                               num_hops=args.num_hops,
                                               icl_example=icl_example,
                                               final_output=True)
-    
+
     write_manifest(save_file, write_jsons)
 
 if __name__=="__main__":

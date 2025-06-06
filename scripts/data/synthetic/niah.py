@@ -35,10 +35,10 @@ from pathlib import Path
 from tqdm import tqdm
 import random
 import wonderwords
-from nemo.collections.asr.parts.utils.manifest_utils import read_manifest, write_manifest
 import sys
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")) 
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from tokenizer import select_tokenizer
+from manifest_utils import write_manifest
 from nltk.tokenize import sent_tokenize
 import logging
 
@@ -79,7 +79,7 @@ args.num_needle_k = max(args.num_needle_k, args.num_needle_q)
 # Load Tokenizer
 TOKENIZER = select_tokenizer(args.tokenizer_type, args.tokenizer_path)
 
-# Define Needle/Haystack Format 
+# Define Needle/Haystack Format
 needle = "One of the special magic {type_needle_v} for {key} is: {value}."
 if args.type_haystack == 'essay':
     essay = os.path.join(os.path.dirname(os.path.abspath(__file__)), "json/PaulGrahamEssays.json")
@@ -136,13 +136,13 @@ def generate_input_output(num_haystack):
             value.append(generate_random(args.type_needle_v))
             needles.append(needle.format(
                 type_needle_v=args.type_needle_v,
-                key=keys[-1], 
+                key=keys[-1],
                 value=value[-1],
             ))
         values.append(value)
-    
+
     random.Random(args.random_seed).shuffle(needles)
-    
+
     # Context
     if args.type_haystack == 'essay':
         text = " ".join(haystack[:num_haystack])
@@ -175,7 +175,7 @@ def generate_input_output(num_haystack):
                 value=generate_random(args.type_needle_v),
             ) for _ in range(num_haystack)]
 
-            
+
         indexes = sorted(random.sample(range(num_haystack), len(needles)), reverse=True)
         for index, element in zip(indexes, needles):
             sentences.insert(index, element)
@@ -187,7 +187,7 @@ def generate_input_output(num_haystack):
     queries = [keys[i] for i in indices]
     answers = [a for i in indices for a in values[i]]
     query = ', '.join(queries[:-1]) + ', and ' + queries[-1] if len(queries) > 1 else queries[0]
-    
+
     template = args.template
     type_needle_v = args.type_needle_v
     if args.num_needle_q * args.num_needle_v == 1:
@@ -210,14 +210,14 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
     write_jsons = []
     tokens_to_generate = args.tokens_to_generate
     max_seq_length -= args.model_template_token
-    
+
     if args.type_haystack == 'essay':
         incremental = 500
     elif args.type_haystack == 'noise':
         incremental = 25
     elif args.type_haystack == 'needle':
         incremental = 25
-        
+
     if args.type_haystack != 'essay' and args.max_seq_length < 4096:
         incremental = 5
 
@@ -258,7 +258,7 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
     logger.info(f'Final optimal haystack size (number of haystack): {num_haystack}')
 
 
-    
+
     # Generate samples
     for index in tqdm(range(num_samples)):
         used_haystack = num_haystack
@@ -271,7 +271,7 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
             except:
                 if used_haystack > incremental:
                     used_haystack -= incremental
-        
+
         if args.remove_newline_tab:
             input_text = ' '.join(input_text.replace('\n', ' ').replace('\t', ' ').strip().split())
         answer_prefix_index = input_text.rfind(TASKS['niah']['answer_prefix'][:10]) # use first 10 char of answer prefix to locate it
@@ -285,8 +285,8 @@ def generate_samples(num_samples: int, max_seq_length: int, save_dir: str, incre
             "input": input_text,
             "outputs": answer,
             "length": length,
-            'length_w_model_temp': length + args.model_template_token, 
-            'answer_prefix': answer_prefix, 
+            'length_w_model_temp': length + args.model_template_token,
+            'answer_prefix': answer_prefix,
             'token_position_answer': token_position_answer,
         }
         write_jsons.append(formatted_output)
@@ -298,7 +298,7 @@ def main():
     save_file = args.save_dir / f'{args.save_name}' / f'{args.subset}.jsonl'
     save_file.parent.mkdir(parents=True, exist_ok=True)
     write_jsons = generate_samples(
-        num_samples=args.num_samples, 
+        num_samples=args.num_samples,
         max_seq_length=args.max_seq_length,
         save_dir=args.save_dir
     )

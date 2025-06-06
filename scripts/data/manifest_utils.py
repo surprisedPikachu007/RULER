@@ -1,0 +1,18 @@
+import json
+
+
+def write_manifest(output_path, target_manifest, ensure_ascii: bool = True):
+    """
+    Write to manifest file
+
+    Args:
+        output_path (str or Path): Path to output manifest file
+        target_manifest (list): List of manifest file entries
+        ensure_ascii (bool): default is True, meaning the output is guaranteed to have all incoming
+                             non-ASCII characters escaped. If ensure_ascii is false, these characters
+                             will be output as-is.
+    """
+    with open(output_path, "w", encoding="utf-8") as outfile:
+        for tgt in target_manifest:
+            json.dump(tgt, outfile, ensure_ascii=ensure_ascii)
+            outfile.write('\n')

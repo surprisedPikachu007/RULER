@@ -16,12 +16,13 @@ TEMPERATURE="0.0" # greedy
 TOP_P="1.0"
 TOP_K="32"
 SEQ_LENGTHS=(
-    131072
-    65536
-    32768
-    16384
-    8192
+    1024
+    2048
     4096
+    8192
+    16384
+    32768
+    65536
 )
 
 MODEL_SELECT() {
@@ -30,6 +31,21 @@ MODEL_SELECT() {
     ENGINE_DIR=$3
     
     case $MODEL_NAME in
+	    custom-vllm)
+            MODEL_PATH="${MODEL_DIR}"
+            MODEL_TEMPLATE_TYPE="base"
+            MODEL_FRAMEWORK="vllm"
+            ;;
+        custom-vllm-serve)
+            MODEL_PATH="${MODEL_DIR}"
+            MODEL_TEMPLATE_TYPE="base"
+            MODEL_FRAMEWORK="vllm-serve"
+            ;;
+	    custom-hf)
+            MODEL_PATH="${MODEL_DIR}"
+            MODEL_TEMPLATE_TYPE="base"
+            MODEL_FRAMEWORK="hf"
+            ;;
         llama2-7b-chat)
             MODEL_PATH="${MODEL_DIR}/llama2-7b-chat-hf"
             MODEL_TEMPLATE_TYPE="meta-chat"

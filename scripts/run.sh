@@ -23,11 +23,13 @@ fi
 
 
 # Root Directories
-GPUS="1" # GPU size for tensor_parallel.
-ROOT_DIR="benchmark_root" # the path that stores generated task samples and model predictions.
-MODEL_DIR="../.." # the path that contains individual model folders from HUggingface.
+GPUS="8" # GPU size for tensor_parallel.
+ROOT_DIR="/path/to/ruler_results" # the path that stores generated task samples and model predictions.
+MODEL_DIR="/path/to/model" # the path that contains individual model folders from HUggingface.
+VLLM_SERVE_MODEL_NAME="/path/to/vllm_model"
+VLLM_SERVER_URL="http://localhost:8094"
 ENGINE_DIR="." # the path that contains individual engine folders from TensorRT-LLM.
-BATCH_SIZE=1  # increase to improve GPU utilization
+BATCH_SIZE=128  # increase to improve GPU utilization
 
 
 # Model and Tokenizer
@@ -60,11 +62,24 @@ fi
 
 # Start server (you may want to run in other container.)
 if [ "$MODEL_FRAMEWORK" == "vllm" ]; then
-    python pred/serve_vllm.py \
-        --model=${MODEL_PATH} \
-        --tensor-parallel-size=${GPUS} \
+    # if it is already running, continue, else start the server.
+    if pgrep -f "serve_vllm.py" > /dev/null; then
+        echo "VLLM server is already running."
+    else
+        python pred/serve_vllm.py \
+            --model=${MODEL_PATH} \
+            --tensor-parallel-size=${GPUS} \
+            --dtype bfloat16 \
+            --disable-custom-all-reduce \
+            &
+        sleep 80 # wait for the server to start
+    fi
+
+elif [ "$MODEL_FRAMEWORK" == "vllm-serve" ]; then
+    python pred/serve_vllm_serve.py \
+        --model=${VLLM_SERVE_MODEL_NAME} \
+        --vllm-server-url=${VLLM_SERVER_URL} \
         --dtype bfloat16 \
-        --disable-custom-all-reduce \
         &
 
 elif [ "$MODEL_FRAMEWORK" == "trtllm" ]; then

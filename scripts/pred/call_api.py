@@ -47,6 +47,7 @@ from nemo.collections.asr.parts.utils.manifest_utils import read_manifest
 SERVER_TYPES = (
     'trtllm',
     'vllm',
+    'vllm-serve',  # vllm-serve is a separate server that uses vLLM as backend
     'sglang',
     'openai',
     'gemini',
@@ -112,7 +113,7 @@ def get_llm(tokens_to_generate):
             max_attention_window_size=args.sliding_window_size,
         )
 
-    elif args.server_type == 'vllm':
+    elif args.server_type == 'vllm' or args.server_type == 'vllm-serve':
         from client_wrappers import VLLMClient
         llm = VLLMClient(
             server_host=args.server_host,
